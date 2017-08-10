@@ -139,22 +139,30 @@ scripts() {
     then ${FIND} provisioners/shell/scripts -type f \
             | ${SORT} -n \
             | ${JQ} -R . \
-            | ${JQ} -c -s .
+            | ${JQ} -s '{ "type": "shell", "scripts": . }'
+    fi
+}
+
+files() {
+    if ${TEST} -d provisioners/file
+    then ${FIND} provisioners/file -type f | while read -r file
+        do ${CAT} <<EOS
+{
+  "type": "file",
+  "source": "${file}",
+  "destination": "${file#provisioners/file}"
+}
+EOS
+        done
     fi
 }
 
 provisioners() {
-    ${CAT} <<EOF \
-        | ${JQ} -r .
-{
-  "provisioners": [
     {
-      "type": "shell",
-      "scripts": $(scripts)
-    }
-  ]
-}
-EOF
+        files
+        scripts
+    } \
+        | ${JQ} -s '{ "provisioners": . }'
 }
 
 config() {
@@ -165,7 +173,7 @@ config() {
 }
 
 script() {
-    ${CAT} <<EOF
+    ${CAT} <<EOS
 #! ${SH}
 # -*- shell-script -*-
 
@@ -187,7 +195,7 @@ status=\${?}
 ${SSH_AGENT} -k 1>/dev/null 2>/dev/null
 
 exit \${status}
-EOF
+EOS
 }
 
 EINVAL=22
