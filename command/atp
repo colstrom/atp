@@ -1,0 +1,201 @@
+#! /bin/sh
+# -*- shell-script -*-
+
+# The MIT License (MIT)
+# Copyright (c) 2017 Chris Olstrom <chris@olstrom.com>
+# Copyright (c) 2017 SUSE LLC
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+if test -f config/environment
+then . config/environment
+fi
+
+# shellcheck disable=SC2086
+initialize() {
+    set -o errexit -o nounset
+
+    USER_PATH=${PATH}
+    SYSTEM_PATH=$(getconf PATH)
+
+    PATH=${SYSTEM_PATH}
+
+    : ${AWK:=$(  command -v awk  )}
+    : ${CAT:=$(  command -v cat  )}
+    : ${FIND:=$( command -v find )}
+    : ${HEAD:=$( command -v head )}
+    : ${SH:=$(   command -v sh   )}
+    : ${SORT:=$( command -v sort )}
+    : ${TAIL:=$( command -v tail )}
+    : ${TEST:=$( command -v test )}
+
+    unset SYSTEM_PATH
+    PATH=${USER_PATH}
+
+    : ${GMAKE:=$(     command -v gmake || command -v make )}
+
+    : ${JQ:=$(        command -v jq        )}
+    : ${JSON:=$(      command -v json      )}
+    : ${PACKER:=$(    command -v packer    )}
+    : ${SSH_ADD:=$(   command -v ssh-add   )}
+    : ${SSH_AGENT:=$( command -v ssh-agent )}
+    : ${TRITON:=$(    command -v triton    )}
+
+    unset USER_PATH
+}
+
+initialize
+
+export IMAGE_NAME=${IMAGE_NAME:-'packer.out'}
+export IMAGE_VERSION=${IMAGE_VERSION:-'0.0.0'}
+
+{
+    eval "$(${TRITON} env --smartdc --triton)"
+    eval "$(${SSH_AGENT})"
+    ${SSH_ADD}
+} 1>/dev/null 2>/dev/null
+
+triton_account()
+{
+    ${TRITON} account get --json \
+        | ${JQ} -r .login
+}
+
+export TRITON_ACCOUNT=${TRITON_ACCOUNT:-$(triton_account)}
+
+triton_key_id()
+{
+    ${TRITON} key list --json \
+        | ${JQ} -r -s .[].fingerprint \
+        | ${HEAD} -n1
+}
+
+export TRITON_KEY_ID=${TRITON_KEY_ID:-$(triton_key_id)}
+
+# shellcheck disable=SC2016
+triton_url()
+{
+    ${TRITON} env --smartdc \
+        | ${AWK} '$1=="export" { print $2 }' \
+        | ${AWK} -F = '$1=="SDC_URL" { gsub(/"/,""); print $2 }'
+}
+
+export TRITON_URL=${TRITON_URL:-$(triton_url)}
+
+
+export SSH_USERNAME=${SSH_USERNAME:-'root'}
+
+# shellcheck disable=SC2016
+ssh_private_key_file()
+{
+    ${SSH_ADD} -l -E MD5 \
+            | ${AWK} '$2~/'${TRITON_KEY_ID}'$/ { print $3; exit }'
+}
+
+export SSH_PRIVATE_KEY_FILE=${SSH_PRIVATE_KEY_FILE:-$(ssh_private_key_file)}
+
+
+
+SOURCE_MACHINE_IMAGE_NAME=${SOURCE_MACHINE_IMAGE_NAME:-'opensuse-leap'}
+
+source_machine_image() {
+    ${TRITON} images -H name="${SOURCE_MACHINE_IMAGE_NAME}" -o id \
+        | ${TAIL} -n 1
+}
+
+export SOURCE_MACHINE_IMAGE=${SOURCE_MACHINE_IMAGE:-$(source_machine_image)}
+
+source_machine_package() {
+    ${TRITON} packages -j \
+        | ${JQ} -r 'select(.default).name'
+}
+
+export SOURCE_MACHINE_PACKAGE=${SOURCE_MACHINE_PACKAGE:-$(source_machine_package)}
+
+template() {
+    if ${TEST} -f config/template.json
+    then ${CAT} config/template.json
+    fi
+}
+
+scripts() {
+    if ${TEST} -d provisioners/shell/scripts
+    then ${FIND} provisioners/shell/scripts -type f \
+            | ${SORT} -n \
+            | ${JQ} -R . \
+            | ${JQ} -c -s .
+    fi
+}
+
+provisioners() {
+    ${CAT} <<EOF \
+        | ${JQ} -r .
+{
+  "provisioners": [
+    {
+      "type": "shell",
+      "scripts": $(scripts)
+    }
+  ]
+}
+EOF
+}
+
+config() {
+    {
+        template
+        provisioners
+    } | ${JSON} --merge
+}
+
+script() {
+    ${CAT} <<EOF
+#! ${SH}
+# -*- shell-script -*-
+
+export SSH_USERNAME="${SSH_USERNAME}"
+export SSH_PRIVATE_KEY_FILE="${SSH_PRIVATE_KEY_FILE}"
+export TRITON_ACCOUNT="${TRITON_ACCOUNT}"
+export TRITON_KEY_ID="${TRITON_KEY_ID}"
+export TRITON_URL="${TRITON_URL}"
+
+export SOURCE_MACHINE_IMAGE="${SOURCE_MACHINE_IMAGE}"
+export SOURCE_MACHINE_PACKAGE="${SOURCE_MACHINE_PACKAGE}"
+
+export IMAGE_NAME="${IMAGE_NAME}"
+export IMAGE_VERSION="${IMAGE_VERSION}"
+
+eval \$(${SSH_AGENT})
+${PACKER} build -force -only=triton -on-error=ask "\${@}"
+status=\${?}
+${SSH_AGENT} -k 1>/dev/null 2>/dev/null
+
+exit \${status}
+EOF
+}
+
+EINVAL=22
+
+case ${1} in
+    config) config ;;
+    script) script ;;
+    *) printf 'Usage: %s <config | script>' "${0##*/}" 1>&2
+       exit ${EINVAL}
+       ;;
+esac
