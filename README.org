@@ -44,6 +44,17 @@
   Any scripts placed in =provisioners/shell/scripts= will be discovered
   automatically.
 
+* Uploading Files
+
+  Any files placed in =provisioners/file= will be uploaded with an equivalent
+  path. For example:
+
+  #+BEGIN_EXAMPLE
+    provisioners/file/etc/passwd -> /etc/passwd
+  #+END_EXAMPLE
+
+  Files are uploaded before scripts are executed.
+
 * Configuration
 
   ~atp~ is configured through environment. The following keys are available for
