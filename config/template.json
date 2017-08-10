@@ -1,0 +1,28 @@
+{
+    "variables": {
+        "image_name": "{{ env `IMAGE_NAME` }}",
+        "image_version": "{{ env `IMAGE_VERSION` }}",
+        "source_machine_package": "{{ env `SOURCE_MACHINE_PACKAGE` }}",
+        "source_machine_image": "{{ env `SOURCE_MACHINE_IMAGE` }}",
+        "ssh_private_key_file": "{{ env `SSH_PRIVATE_KEY_FILE` }}",
+        "ssh_username": "{{ env `SSH_USERNAME` }}",
+        "triton_account": "{{ env `TRITON_ACCOUNT` }}",
+        "triton_key_id": "{{ env `TRITON_KEY_ID` }}",
+        "triton_url": "{{ env `TRITON_URL` }}"
+    },
+    "builders": [
+        {
+            "type": "triton",
+            "image_name": "{{ user `image_name` }}",
+            "image_version": "{{ user `image_version` }}",
+            "source_machine_image": "{{ user `source_machine_image` }}",
+            "source_machine_package": "{{ user `source_machine_package` }}",
+            "ssh_private_key_file": "{{ user `ssh_private_key_file` }}",
+            "ssh_username": "{{ user `ssh_username` }}",
+            "triton_account": "{{ user `triton_account` }}",
+            "triton_key_id": "{{ user `triton_key_id` }}",
+            "triton_key_material": "{{ user `ssh_private_key_file` }}",
+            "triton_url": "{{ user `triton_url` }}"
+        }
+    ]
+}
