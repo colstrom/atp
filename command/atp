@@ -67,8 +67,10 @@ export IMAGE_VERSION=${IMAGE_VERSION:-'0.0.0'}
 
 {
     eval "$(${TRITON} env --smartdc --triton)"
-    eval "$(${SSH_AGENT})"
-    ${SSH_ADD}
+    if test -z  "${SSH_PRIVATE_KEY_FILE:-}" ; then
+        eval "$(${SSH_AGENT})"
+        ${SSH_ADD}
+    fi
 } 1>/dev/null 2>/dev/null
 
 triton_account()
